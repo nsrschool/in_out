@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ระบบงานทะเบียน–ย้ายนักเรียน | โรงเรียนหนองสำโรงวิทยา</title>
+
+<!-- ════════════════════════════════════════════════════════════
+     ⚙️ ตั้งค่า Web App URL (แก้ตรงนี้จุดเดียว)
+     วาง URL ที่ได้จากการ Deploy Google Apps Script เป็น Web App
+════════════════════════════════════════════════════════════ -->
+<script>
+const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwBC-9n9uyl_ak9XYNB99tZqU0B8uwqhj7afjVsXXnJ9y6FyZ9NcjIvO2FPnXqNmM5f/exec';
+</script>
+
+<!-- Favicon เริ่มต้น (🏫) — ระบบจะเปลี่ยนเป็นโลโก้โรงเรียนอัตโนมัติเมื่อโหลดการตั้งค่าสำเร็จ -->
+<link id="favicon" rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏫</text></svg>">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+  * { font-family: 'Sarabun', sans-serif; }
+  .blink { animation: blink 1.4s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+  .tab-active { background: linear-gradient(135deg,#2563eb,#7c3aed); color:#fff; box-shadow:0 4px 14px rgba(37,99,235,.35); }
+  .toast-in { animation: toastIn .3s ease forwards; }
+  @keyframes toastIn { from{transform:translateY(20px);opacity:0} to{transform:translateY(0);opacity:1} }
+  ::-webkit-scrollbar{height:6px;width:8px} ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:8px}
+</style>
+</head>
+<body class="bg-gradient-to-br from-sky-50 via-indigo-50 to-violet-50 min-h-screen text-slate-800">
+
+<!-- ░░░░░░░░░░ Loading Overlay ░░░░░░░░░░ -->
+<div id="loading" class="fixed inset-0 z-[100] hidden items-center justify-center bg-white/70 backdrop-blur-sm">
+  <div class="flex flex-col items-center gap-3">
+    <div class="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+    <p id="loadingText" class="text-indigo-700 font-semibold">กำลังโหลดข้อมูล...</p>
+  </div>
+</div>
+
+<!-- ░░░░░░░░░░ Toast ░░░░░░░░░░ -->
+<div id="toastBox" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-[110] space-y-2 w-[92%] max-w-sm"></div>
+
+<div class="max-w-6xl mx-auto px-3 sm:px-5 pb-10">
+
+  <!-- ░░░░░░░░░░ Header ░░░░░░░░░░ -->
+  <header class="pt-6 pb-3 text-center">
+    <div class="flex items-center justify-center gap-3">
+      <img id="headerLogo" src="" alt="" class="w-14 h-14 object-contain hidden rounded-full bg-white shadow">
+      <div>
+        <h1 class="text-2xl sm:text-3xl font-extrabold bg-gradient-to-r from-blue-700 via-indigo-600 to-violet-600 bg-clip-text text-transparent">
+          🗂️ ระบบงานทะเบียน–ย้ายนักเรียน
+        </h1>
+        <p class="text-sm text-slate-500 mt-1">รับสมัคร • ย้ายเข้า • ย้ายออก • หนังสือนำส่ง • ปพ.1 / ปพ.7 — งานวิชาการ <span id="hdSchool">โรงเรียนหนองสำโรงวิทยา</span></p>
+      </div>
+    </div>
+    <div class="mt-3 inline-flex items-center gap-2 bg-white border border-emerald-200 rounded-full px-4 py-1 text-xs shadow-sm">
+      <span id="connDot" class="w-2.5 h-2.5 rounded-full bg-slate-300"></span>
+      <span id="connText" class="text-slate-500">☁️ กำลังเชื่อมต่อกับ Google Sheets...</span>
+    </div>
+  </header>
+
+  <!-- ░░░░░░░░░░ Action Bar ░░░░░░░░░░ -->
+  <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-3 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+    <p class="text-xs text-slate-500 flex items-start gap-1.5">
+      <span>💡</span><span>ข้อมูลถูกบันทึกบน Google Sheets ของคุณโดยอัตโนมัติ สามารถเข้าใช้งานได้จากทุกอุปกรณ์</span>
+    </p>
+    <div class="flex flex-wrap gap-2 justify-end">
+      <button onclick="doBackup()" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white shadow">💾 สำรองข้อมูล</button>
+      <button onclick="document.getElementById('importFile').click()" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-500 hover:bg-blue-600 text-white shadow">📥 นำเข้าข้อมูล</button>
+      <input type="file" id="importFile" accept=".json" class="hidden" onchange="doImport(this)">
+      <button onclick="openClearModal()" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-rose-500 hover:bg-rose-600 text-white shadow">🗑️ ล้างข้อมูลทั้งหมด</button>
+    </div>
+  </div>
+
+  <!-- ░░░░░░░░░░ Navigation Tabs ░░░░░░░░░░ -->
+  <nav class="mt-4 flex gap-2 overflow-x-auto pb-1" id="navTabs">
+    <button data-tab="dashboard" class="tab-btn tab-active whitespace-nowrap px-4 py-2 rounded-xl text-sm font-semibold bg-white border border-slate-200">🏠 Dashboard</button>
+    <button data-tab="admission" class="tab-btn whitespace-nowrap px-4 py-2 rounded-xl text-sm font-semibold bg-white border border-slate-200">📝 รับสมัคร/ย้ายเข้า</button>
+    <button data-tab="transfer"  class="tab-btn whitespace-nowrap px-4 py-2 rounded-xl text-sm font-semibold bg-white border border-slate-200">📤 ย้ายออก</button>
+    <button data-tab="pp"        class="tab-btn whitespace-nowrap px-4 py-2 rounded-xl text-sm font-semibold bg-white border border-slate-200">📜 ทะเบียน ปพ.1/ปพ.7</button>
+    <button data-tab="report"    class="tab-btn whitespace-nowrap px-4 py-2 rounded-xl text-sm font-semibold bg-white border border-slate-200">📊 รายงานสรุป</button>
+    <button data-tab="settings"  class="tab-btn whitespace-nowrap px-4 py-2 rounded-xl text-sm font-semibold bg-white border border-slate-200">⚙️ ตั้งค่าระบบ</button>
+    <button data-tab="manual"    class="tab-btn whitespace-nowrap px-4 py-2 rounded-xl text-sm font-semibold bg-white border border-slate-200">📖 คู่มือการใช้งาน</button>
+  </nav>
+
+  <!-- ════════════════ TAB: Dashboard ════════════════ -->
+  <section id="tab-dashboard" class="tab-page mt-4 space-y-4">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div class="bg-white rounded-2xl p-4 shadow-sm border-l-4 border-blue-500">
+        <p class="text-xs text-slate-500">สมัคร/ย้ายเข้า (ปีนี้)</p>
+        <p class="text-3xl font-extrabold text-blue-600" id="dAdm">–</p>
+        <p class="text-[11px] text-amber-600 mt-1">รอดำเนินการ <span id="dAdmPending">–</span> ราย</p>
+      </div>
+      <div class="bg-white rounded-2xl p-4 shadow-sm border-l-4 border-orange-500">
+        <p class="text-xs text-slate-500">ย้ายออก</p>
+        <p class="text-3xl font-extrabold text-orange-600" id="dTrf">–</p>
+        <p class="text-[11px] text-amber-600 mt-1">รอดำเนินการ <span id="dTrfPending">–</span> ราย</p>
+      </div>
+      <div class="bg-white rounded-2xl p-4 shadow-sm border-l-4 border-violet-500">
+        <p class="text-xs text-slate-500">ออก ปพ.1 / ปพ.7</p>
+        <p class="text-3xl font-extrabold text-violet-600"><span id="dPP1">–</span> / <span id="dPP7">–</span></p>
+        <p class="text-[11px] text-slate-400 mt-1">ฉบับ (ทะเบียนคุม)</p>
+      </div>
+      <div class="bg-white rounded-2xl p-4 shadow-sm border-l-4 border-emerald-500">
+        <p class="text-xs text-slate-500">นักเรียนในทะเบียน</p>
+        <p class="text-3xl font-extrabold text-emerald-600" id="dStd">–</p>
+        <p class="text-[11px] text-slate-400 mt-1">ปีการศึกษา <span id="dYear">–</span></p>
+      </div>
+    </div>
+
+    <div class="grid lg:grid-cols-5 gap-4">
+      <div class="lg:col-span-3 bg-white rounded-2xl p-4 shadow-sm">
+        <h3 class="font-bold text-slate-700 mb-2">📈 สถิติรายเดือน</h3>
+        <canvas id="dashChart" height="190"></canvas>
+      </div>
+      <div class="lg:col-span-2 bg-white rounded-2xl p-4 shadow-sm">
+        <h3 class="font-bold text-slate-700 mb-2">🕘 รายการล่าสุด</h3>
+        <div id="dRecent" class="space-y-2 text-sm text-slate-600">
+          <p class="text-slate-400 text-xs">ยังไม่มีรายการ</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════════════ TAB: รับสมัคร/ย้ายเข้า (Part 3) ════════════════ -->
+  <section id="tab-admission" class="tab-page hidden mt-4">
+    <div class="bg-white rounded-2xl p-10 text-center shadow-sm text-slate-400">📝 ส่วนรับสมัคร/ย้ายเข้า — กำลังติดตั้งใน Part 3</div>
+  </section>
+
+  <!-- ════════════════ TAB: ย้ายออก (Part 3) ════════════════ -->
+  <section id="tab-transfer" class="tab-page hidden mt-4">
+    <div class="bg-white rounded-2xl p-10 text-center shadow-sm text-slate-400">📤 ส่วนย้ายออก — กำลังติดตั้งใน Part 3</div>
+  </section>
+
+  <!-- ════════════════ TAB: ปพ.1/ปพ.7 (Part 3) ════════════════ -->
+  <section id="tab-pp" class="tab-page hidden mt-4">
+    <div class="bg-white rounded-2xl p-10 text-center shadow-sm text-slate-400">📜 ทะเบียน ปพ.1/ปพ.7 — กำลังติดตั้งใน Part 3</div>
+  </section>
+
+  <!-- ════════════════ TAB: รายงานสรุป (Part 3) ════════════════ -->
+  <section id="tab-report" class="tab-page hidden mt-4">
+    <div class="bg-white rounded-2xl p-10 text-center shadow-sm text-slate-400">📊 รายงานสรุป — กำลังติดตั้งใน Part 3</div>
+  </section>
+
+  <!-- ════════════════ TAB: ตั้งค่าระบบ ════════════════ -->
+  <section id="tab-settings" class="tab-page hidden mt-4">
+    <div class="flex gap-2 mb-3">
+      <button id="subSet1" onclick="switchSetTab(1)" class="px-4 py-2 rounded-xl text-sm font-semibold bg-indigo-600 text-white shadow">🏫 ข้อมูลสถานศึกษา</button>
+      <button id="subSet2" onclick="switchSetTab(2)" class="px-4 py-2 rounded-xl text-sm font-semibold bg-white border border-slate-200">🧑‍🎓 จัดการรายชื่อนักเรียน</button>
+    </div>
+
+    <!-- ── 1.1 ข้อมูลสถานศึกษา ── -->
+    <div id="setPage1" class="bg-white rounded-2xl shadow-sm p-5 space-y-4">
+      <h3 class="font-bold text-slate-700">🏫 ข้อมูลสถานศึกษา</h3>
+      <div class="grid sm:grid-cols-2 gap-3 text-sm">
+        <div><label class="text-xs font-semibold text-slate-500">ชื่อโรงเรียน</label>
+          <input id="sSchoolName" class="w-full mt-1 border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-300 outline-none"></div>
+        <div><label class="text-xs font-semibold text-slate-500">สังกัด</label>
+          <input id="sSchoolArea" class="w-full mt-1 border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-300 outline-none"></div>
+        <div class="sm:col-span-2"><label class="text-xs font-semibold text-slate-500">ที่อยู่โรงเรียน</label>
+          <input id="sSchoolAddress" class="w-full mt-1 border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-300 outline-none"></div>
+        <div><label class="text-xs font-semibold text-slate-500">เบอร์โทรศัพท์</label>
+          <input id="sSchoolPhone" class="w-full mt-1 border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-300 outline-none"></div>
+        <div><label class="text-xs font-semibold text-slate-500">ปีการศึกษา</label>
+          <input id="sAcademicYear" class="w-full mt-1 border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-300 outline-none"></div>
+        <div><label class="text-xs font-semibold text-slate-500">ชื่อผู้อำนวยการ</label>
+          <input id="sDirectorName" class="w-full mt-1 border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-300 outline-none"></div>
+        <div><label class="text-xs font-semibold text-slate-500">ตำแหน่งผู้อำนวยการ</label>
+          <input id="sDirectorPos" class="w-full mt-1 border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-300 outline-none"></div>
+        <div><label class="text-xs font-semibold text-slate-500">ชื่อรองผู้อำนวยการ (ถ้ามี)</label>
+          <input id="sDeputyName" class="w-full mt-1 border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-300 outline-none"></div>
+        <div><label class="text-xs font-semibold text-slate-500">ตำแหน่งรองผู้อำนวยการ</label>
+          <input id="sDeputyPos" class="w-full mt-1 border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-300 outline-none"></div>
+        <div><label class="text-xs font-semibold text-slate-500">เลขที่หนังสือส่ง (Prefix เช่น ศธ 04176.123)</label>
+          <input id="sDocPrefix" class="w-full mt-1 border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-300 outline-none"></div>
+        <div><label class="text-xs font-semibold text-slate-500">เลขรันหนังสือล่าสุด (เลขถัดไป = ค่านี้ + 1)</label>
+          <input id="sLastDocNumber" type="number" class="w-full mt-1 border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-300 outline-none"></div>
+      </div>
+
+      <h3 class="font-bold text-slate-700 pt-2 border-t border-slate-100">🖼️ โลโก้และลายเซ็นดิจิทัล <span class="text-xs font-normal text-slate-400">(ระบบบีบอัดรูปและเก็บใน Google Drive อัตโนมัติ — โลโก้จะถูกใช้เป็น Favicon ของระบบด้วย)</span></h3>
+      <div class="grid sm:grid-cols-3 gap-4">
+        <div class="text-center">
+          <p class="text-xs font-semibold text-slate-500 mb-1">ตราโรงเรียน (Logo)</p>
+          <img id="prevLogo" src="" class="hidden w-20 h-20 object-contain mx-auto rounded-lg bg-slate-50 border mb-2">
+          <input type="file" accept="image/*" class="text-xs w-full" onchange="uploadImg(this,'logoURL','prevLogo')">
+        </div>
+        <div class="text-center">
+          <p class="text-xs font-semibold text-slate-500 mb-1">ลายเซ็นผู้อำนวยการ</p>
+          <img id="prevDirSig" src="" class="hidden w-28 h-14 object-contain mx-auto rounded-lg bg-slate-50 border mb-2">
+          <input type="file" accept="image/*" class="text-xs w-full" onchange="uploadImg(this,'directorSigURL','prevDirSig')">
+        </div>
+        <div class="text-center">
+          <p class="text-xs font-semibold text-slate-500 mb-1">ลายเซ็นรองผู้อำนวยการ</p>
+          <img id="prevDepSig" src="" class="hidden w-28 h-14 object-contain mx-auto rounded-lg bg-slate-50 border mb-2">
+          <input type="file" accept="image/*" class="text-xs w-full" onchange="uploadImg(this,'deputySigURL','prevDepSig')">
+        </div>
+      </div>
+
+      <div class="text-right pt-2">
+        <button onclick="saveSettings()" class="px-6 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-sm font-bold shadow hover:opacity-90">💾 บันทึกการตั้งค่า</button>
+      </div>
+    </div>
+
+    <!-- ── 1.2 จัดการรายชื่อนักเรียน ── -->
+    <div id="setPage2" class="hidden space-y-4">
+      <div class="bg-white rounded-2xl shadow-sm p-5">
+        <h3 class="font-bold text-slate-700 mb-3">📂 นำเข้ารายชื่อนักเรียน</h3>
+        <div class="flex flex-wrap gap-2">
+          <button onclick="downloadTemplate()" class="px-4 py-2 rounded-xl text-sm font-semibold bg-slate-100 hover:bg-slate-200 border border-slate-200">📥 ดาวน์โหลดไฟล์ฟอร์มตัวอย่าง (CSV)</button>
+          <button onclick="document.getElementById('stdFile').click()" class="px-4 py-2 rounded-xl text-sm font-semibold bg-teal-500 hover:bg-teal-600 text-white shadow">📤 นำเข้าข้อมูลรายชื่อ (.xlsx / .csv)</button>
+          <input type="file" id="stdFile" accept=".xlsx,.xls,.csv" class="hidden" onchange="importStudents(this)">
+        </div>
+        <p class="text-[11px] text-slate-400 mt-2">หัวคอลัมน์ในไฟล์: เลขที่ | เลขประจำตัวนักเรียน | ชื่อ-นามสกุล | ระดับชั้น/ห้อง</p>
+      </div>
+
+      <div class="bg-white rounded-2xl shadow-sm p-5">
+        <h3 class="font-bold text-slate-700 mb-3">➕ เพิ่มรายชื่อทีละคน</h3>
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 text-sm">
+          <input id="aNo" placeholder="เลขที่" class="border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-teal-300">
+          <input id="aStdId" placeholder="เลขประจำตัว นร." class="border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-teal-300">
+          <input id="aName" placeholder="ชื่อ-นามสกุล" class="col-span-2 border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-teal-300">
+          <input id="aClass" placeholder="ชั้น/ห้อง เช่น ป.1/1" class="border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-teal-300">
+        </div>
+        <div class="text-right mt-3">
+          <button onclick="addStudent()" class="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-bold shadow">➕ เพิ่มรายชื่อ</button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl shadow-sm p-5">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+          <h3 class="font-bold text-slate-700">👥 รายชื่อนักเรียนทั้งหมด (<span id="stdCount">0</span> คน)</h3>
+          <input id="stdSearch" oninput="renderStudents()" placeholder="🔍 ค้นหาชื่อ / เลขประจำตัว / ชั้น..." class="border border-slate-200 rounded-lg px-3 py-2 text-sm w-full sm:w-72 outline-none focus:ring-2 focus:ring-indigo-300">
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead><tr class="bg-indigo-50 text-indigo-800">
+              <th class="px-2 py-2 text-left rounded-l-lg">เลขที่</th><th class="px-2 py-2 text-left">เลขประจำตัว</th>
+              <th class="px-2 py-2 text-left">ชื่อ-นามสกุล</th><th class="px-2 py-2 text-left">ชั้น/ห้อง</th>
+              <th class="px-2 py-2 text-center rounded-r-lg">จัดการ</th>
+            </tr></thead>
+            <tbody id="stdTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════════════ TAB: คู่มือ ════════════════ -->
+  <section id="tab-manual" class="tab-page hidden mt-4">
+    <div class="bg-white rounded-2xl shadow-sm p-6 space-y-4 text-sm leading-relaxed">
+      <h3 class="font-bold text-lg text-slate-700">📖 คู่มือการใช้งานอย่างย่อ</h3>
+      <ol class="list-decimal ml-5 space-y-2 text-slate-600">
+        <li><b>ตั้งค่าระบบครั้งแรก:</b> ไปที่ ⚙️ ตั้งค่าระบบ → กรอกข้อมูลโรงเรียน อัปโหลดโลโก้และลายเซ็น ผอ. → กดบันทึก (โลโก้จะกลายเป็นไอคอนของเว็บอัตโนมัติ)</li>
+        <li><b>เพิ่มรายชื่อนักเรียน:</b> แท็บ 🧑‍🎓 จัดการรายชื่อนักเรียน → นำเข้าไฟล์ Excel/CSV หรือเพิ่มทีละคน</li>
+        <li><b>รับสมัคร/ย้ายเข้า:</b> กรอกฟอร์มตามใบสมัคร ติ๊กหลักฐาน → พิมพ์ใบสมัคร/แบบตอบรับ → เมื่อกด "รับเข้าเรียน" ระบบเพิ่มชื่อลงทะเบียนนักเรียนให้อัตโนมัติ</li>
+        <li><b>ย้ายออก:</b> บันทึกคำร้อง → ตรวจหลักฐาน → กด "ออกหนังสือนำส่ง" ระบบรันเลขที่หนังสือให้อัตโนมัติ → พิมพ์คำร้อง/หนังสือนำส่ง</li>
+        <li><b>ปพ.1 / ปพ.7:</b> บันทึกการออกเอกสารลงทะเบียนคุม — ปพ.7 พิมพ์ฉบับจริงได้จากระบบ</li>
+        <li><b>สำรองข้อมูล:</b> กดปุ่ม 💾 ด้านบนเพื่อดาวน์โหลดไฟล์ .json เก็บไว้ และนำกลับมา 📥 นำเข้าได้ทุกเมื่อ</li>
+      </ol>
+      <h3 class="font-bold text-lg text-slate-700 pt-3 border-t border-slate-100">🚀 วิธี Deploy เป็น Web App (สำหรับครูที่นำไปใช้ต่อ)</h3>
+      <ol class="list-decimal ml-5 space-y-2 text-slate-600">
+        <li>สร้าง Google Sheet ใหม่ → เมนู Extensions → Apps Script</li>
+        <li>วางโค้ด <b>Code.gs</b> ลงไป แล้วกดบันทึก</li>
+        <li>กด <b>Deploy → New deployment → Web app</b> → Execute as: <b>Me</b> → Who has access: <b>Anyone</b> → Deploy (อนุญาตสิทธิ์ครั้งแรกตามที่ระบบถาม)</li>
+        <li>คัดลอก <b>Web App URL</b> มาวางในไฟล์ index.html บรรทัดบนสุด (ตัวแปร WEB_APP_URL)</li>
+        <li>อัปโหลด index.html ขึ้น GitHub Pages → เปิดใช้งานผ่านลิงก์ของ GitHub Pages ได้ทันที</li>
+        <li>⚠️ ทุกครั้งที่แก้ Code.gs ต้อง Deploy → Manage deployments → ✏️ Edit → New version → Deploy / แก้ index.html ต้องอัปโหลดขึ้น GitHub ใหม่แล้ว Hard Refresh (Ctrl+Shift+R)</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ░░░░░░░░░░ Footer ░░░░░░░░░░ -->
+  <footer class="mt-8 text-center text-[11px] text-slate-400 leading-relaxed">
+    พัฒนาโดย: ครูรุ่งนิรันดร์ • All Rights Reserved.<br>
+    สำหรับใช้ในโรงเรียนหนองสำโรงวิทยาเท่านั้น ไม่อนุญาตให้ดัดแปลง แก้ไข ทำซ้ำ เพื่อการพาณิชย์ หรือแอบอ้างเป็นผลงานของตนเอง
+  </footer>
+</div>
+
+<!-- ░░░░░░░░░░ Modal: ยืนยันล้างข้อมูล ░░░░░░░░░░ -->
+<div id="clearModal" class="fixed inset-0 z-[90] hidden items-center justify-center bg-black/50 p-4">
+  <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-5 border-t-4 border-rose-500">
+    <h3 class="font-bold text-rose-600 text-lg">🗑️ ล้างข้อมูลทั้งหมด</h3>
+    <p class="text-sm text-slate-600 mt-2">การกระทำนี้จะลบข้อมูลทุกรายการใน Google Sheets (ยกเว้นการตั้งค่า) และ<b>ไม่สามารถกู้คืนได้</b> กรุณาสำรองข้อมูลก่อน</p>
+    <p class="text-sm mt-3">พิมพ์คำว่า <b class="text-rose-600">ยืนยัน</b> เพื่อดำเนินการ</p>
+    <input id="clearConfirmText" class="w-full mt-2 border border-rose-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-rose-300" placeholder="พิมพ์: ยืนยัน">
+    <div class="flex justify-end gap-2 mt-4">
+      <button onclick="closeClearModal()" class="px-4 py-2 rounded-lg text-sm bg-slate-100 hover:bg-slate-200">ยกเลิก</button>
+      <button onclick="doClearAll()" class="px-4 py-2 rounded-lg text-sm bg-rose-500 hover:bg-rose-600 text-white font-bold">ล้างข้อมูล</button>
+    </div>
+  </div>
+</div>
+
+<!-- ░░░░░░░░░░ Modal: แก้ไขนักเรียน ░░░░░░░░░░ -->
+<div id="editStdModal" class="fixed inset-0 z-[90] hidden items-center justify-center bg-black/50 p-4">
+  <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-5 border-t-4 border-indigo-500">
+    <h3 class="font-bold text-indigo-700">✏️ แก้ไขข้อมูลนักเรียน</h3>
+    <input type="hidden" id="eId">
+    <div class="space-y-2 mt-3 text-sm">
+      <input id="eNo" placeholder="เลขที่" class="w-full border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-300">
+      <input id="eStdId" placeholder="เลขประจำตัวนักเรียน" class="w-full border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-300">
+      <input id="eName" placeholder="ชื่อ-นามสกุล" class="w-full border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-300">
+      <input id="eClass" placeholder="ชั้น/ห้อง" class="w-full border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-300">
+    </div>
+    <div class="flex justify-end gap-2 mt-4">
+      <button onclick="document.getElementById('editStdModal').classList.replace('flex','hidden')" class="px-4 py-2 rounded-lg text-sm bg-slate-100 hover:bg-slate-200">ยกเลิก</button>
+      <button onclick="saveEditStudent()" class="px-4 py-2 rounded-lg text-sm bg-indigo-600 hover:bg-indigo-700 text-white font-bold">บันทึก</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ════════════════ Core: API / Loading / Toast ════════════════ */
+let SETTINGS = {}, STUDENTS = [], dashChartObj = null;
+
+async function api(action, data = {}) {
+  const res = await fetch(WEB_APP_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // text/plain = ไม่ติด CORS preflight
+    body: JSON.stringify({ action, data })
+  });
+  const out = await res.json();
+  if (!out.ok) throw new Error(out.error || 'เกิดข้อผิดพลาด');
+  return out;
+}
+
+function loading(show, text = 'กำลังโหลดข้อมูล...') {
+  const el = document.getElementById('loading');
+  document.getElementById('loadingText').textContent = text;
+  el.classList.toggle('hidden', !show);
+  el.classList.toggle('flex', show);
+}
+
+function toast(msg, ok = true) {
+  const box = document.getElementById('toastBox');
+  const t = document.createElement('div');
+  t.className = `toast-in px-4 py-3 rounded-xl shadow-lg text-sm font-semibold text-white ${ok ? 'bg-emerald-500' : 'bg-rose-500'}`;
+  t.textContent = (ok ? '✅ ' : '❌ ') + msg;
+  box.appendChild(t);
+  setTimeout(() => t.remove(), 3200);
+}
+
+/* ════════════════ Tabs ════════════════ */
+document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('tab-active'));
+  btn.classList.add('tab-active');
+  document.querySelectorAll('.tab-page').forEach(p => p.classList.add('hidden'));
+  document.getElementById('tab-' + btn.dataset.tab).classList.remove('hidden');
+  if (btn.dataset.tab === 'dashboard') loadDashboard();
+}));
+
+function switchSetTab(n) {
+  document.getElementById('setPage1').classList.toggle('hidden', n !== 1);
+  document.getElementById('setPage2').classList.toggle('hidden', n !== 2);
+  document.getElementById('subSet1').className = n === 1 ? 'px-4 py-2 rounded-xl text-sm font-semibold bg-indigo-600 text-white shadow' : 'px-4 py-2 rounded-xl text-sm font-semibold bg-white border border-slate-200';
+  document.getElementById('subSet2').className = n === 2 ? 'px-4 py-2 rounded-xl text-sm font-semibold bg-indigo-600 text-white shadow' : 'px-4 py-2 rounded-xl text-sm font-semibold bg-white border border-slate-200';
+  if (n === 2) loadStudents();
+}
+
+/* ════════════════ เริ่มต้น: ping + โหลดการตั้งค่า ════════════════ */
+async function init() {
+  try {
+    await api('ping');
+    document.getElementById('connDot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 blink';
+    document.getElementById('connText').textContent = '☁️ เชื่อมต่อกับ Google Sheets (Online Mode)';
+    document.getElementById('connText').className = 'text-emerald-700 font-semibold';
+    await loadSettings();
+    await loadDashboard();
+  } catch (e) {
+    document.getElementById('connDot').className = 'w-2.5 h-2.5 rounded-full bg-rose-500';
+    document.getElementById('connText').textContent = '⚠️ เชื่อมต่อไม่สำเร็จ — ตรวจสอบ WEB_APP_URL';
+    document.getElementById('connText').className = 'text-rose-600 font-semibold';
+    toast('เชื่อมต่อไม่สำเร็จ: ' + e.message, false);
+  }
+}
+
+/* ════════════════ Settings + Favicon ════════════════ */
+async function loadSettings() {
+  const out = await api('getSettings');
+  SETTINGS = out.settings || {};
+  const map = { sSchoolName:'schoolName', sSchoolArea:'schoolArea', sSchoolAddress:'schoolAddress', sSchoolPhone:'schoolPhone',
+    sAcademicYear:'academicYear', sDirectorName:'directorName', sDirectorPos:'directorPos',
+    sDeputyName:'deputyName', sDeputyPos:'deputyPos', sDocPrefix:'docPrefix', sLastDocNumber:'lastDocNumber' };
+  Object.keys(map).forEach(id => document.getElementById(id).value = SETTINGS[map[id]] || '');
+  document.getElementById('hdSchool').textContent = SETTINGS.schoolName || 'โรงเรียนหนองสำโรงวิทยา';
+  setPreview('prevLogo', SETTINGS.logoURL); setPreview('prevDirSig', SETTINGS.directorSigURL); setPreview('prevDepSig', SETTINGS.deputySigURL);
+  applyLogoFavicon();
+}
+
+function setPreview(id, url) {
+  const img = document.getElementById(id);
+  if (url) { img.src = url; img.classList.remove('hidden'); } else { img.classList.add('hidden'); }
+}
+
+// 🎯 Favicon จากโลโก้โรงเรียนที่อัปโหลดในหน้าตั้งค่า
+function applyLogoFavicon() {
+  if (!SETTINGS.logoURL) return;
+  document.getElementById('favicon').href = SETTINGS.logoURL;
+  const hl = document.getElementById('headerLogo');
+  hl.src = SETTINGS.logoURL; hl.classList.remove('hidden');
+}
+
+async function saveSettings() {
+  loading(true, 'กำลังบันทึกการตั้งค่า...');
+  try {
+    const data = {
+      schoolName: v('sSchoolName'), schoolArea: v('sSchoolArea'), schoolAddress: v('sSchoolAddress'),
+      schoolPhone: v('sSchoolPhone'), academicYear: v('sAcademicYear'),
+      directorName: v('sDirectorName'), directorPos: v('sDirectorPos'),
+      deputyName: v('sDeputyName'), deputyPos: v('sDeputyPos'),
+      docPrefix: v('sDocPrefix'), lastDocNumber: v('sLastDocNumber')
+    };
+    const out = await api('saveSettings', data);
+    SETTINGS = out.settings;
+    document.getElementById('hdSchool').textContent = SETTINGS.schoolName;
+    applyLogoFavicon();
+    toast('บันทึกการตั้งค่าเรียบร้อย');
+  } catch (e) { toast(e.message, false); }
+  loading(false);
+}
+function v(id) { return document.getElementById(id).value.trim(); }
+
+/* ── อัปโหลดรูป: บีบอัด → Base64 → Drive ── */
+function compressImage(file, maxSize = 600, quality = 0.85) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+        const cv = document.createElement('canvas');
+        cv.width = Math.round(img.width * scale); cv.height = Math.round(img.height * scale);
+        const ctx = cv.getContext('2d');
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, cv.width, cv.height);
+        ctx.drawImage(img, 0, 0, cv.width, cv.height);
+        resolve(cv.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject; img.src = e.target.result;
+    };
+    reader.onerror = reject; reader.readAsDataURL(file);
+  });
+}
+
+async function uploadImg(input, settingKey, previewId) {
+  const file = input.files[0]; if (!file) return;
+  loading(true, 'กำลังบีบอัดและอัปโหลดรูปขึ้น Google Drive...');
+  try {
+    const b64 = await compressImage(file);
+    const out = await api('uploadImage', { base64: b64, filename: settingKey, mimeType: 'image/jpeg' });
+    await api('saveSettings', { [settingKey]: out.url });
+    SETTINGS[settingKey] = out.url;
+    setPreview(previewId, out.url);
+    if (settingKey === 'logoURL') applyLogoFavicon();
+    toast('อัปโหลดรูปสำเร็จ');
+  } catch (e) { toast(e.message, false); }
+  loading(false); input.value = '';
+}
+
+/* ════════════════ Dashboard ════════════════ */
+async function loadDashboard() {
+  try {
+    const out = await api('getDashboard');
+    const d = out.dashboard, c = d.counts;
+    set('dAdm', c.admission); set('dAdmPending', c.admissionPending);
+    set('dTrf', c.transfer); set('dTrfPending', c.transferPending);
+    set('dPP1', c.pp1); set('dPP7', c.pp7); set('dStd', c.students); set('dYear', d.academicYear);
+
+    const recent = [...d.recent.admissions.map(r => ({ icon:'📝', t:r['ชื่อ-นามสกุล'], s:r['สถานะ'], dt:r['วันที่ยื่น'] })),
+                    ...d.recent.transfers.map(r => ({ icon:'📤', t:r['นักเรียน'], s:r['สถานะ'], dt:r['วันที่ยื่น'] }))]
+                   .sort((a,b)=> String(b.dt).localeCompare(String(a.dt))).slice(0,6);
+    document.getElementById('dRecent').innerHTML = recent.length
+      ? recent.map(r => `<div class="flex justify-between items-center bg-slate-50 rounded-lg px-3 py-2">
+          <span>${r.icon} ${esc(r.t)||'-'}</span><span class="text-[11px] text-indigo-600 font-semibold">${esc(r.s)||''}</span></div>`).join('')
+      : '<p class="text-slate-400 text-xs">ยังไม่มีรายการ</p>';
+
+    const months = Object.keys(d.monthly).sort();
+    const ctx = document.getElementById('dashChart');
+    if (dashChartObj) dashChartObj.destroy();
+    dashChartObj = new Chart(ctx, {
+      type: 'bar',
+      data: { labels: months.length ? months : ['—'],
+        datasets: [
+          { label: 'สมัคร/ย้ายเข้า', data: months.map(m=>d.monthly[m].admission), backgroundColor:'#3b82f6', borderRadius:6 },
+          { label: 'ย้ายออก', data: months.map(m=>d.monthly[m].transfer), backgroundColor:'#f97316', borderRadius:6 },
+          { label: 'ปพ.1', data: months.map(m=>d.monthly[m].pp1), backgroundColor:'#8b5cf6', borderRadius:6 },
+          { label: 'ปพ.7', data: months.map(m=>d.monthly[m].pp7), backgroundColor:'#10b981', borderRadius:6 }
+        ]},
+      options: { responsive:true, plugins:{ legend:{ labels:{ font:{ family:'Sarabun' } } } },
+        scales:{ y:{ beginAtZero:true, ticks:{ stepSize:1 } } } }
+    });
+  } catch (e) { /* dashboard เงียบไว้ถ้าโหลดไม่ได้ */ }
+}
+function set(id, val) { document.getElementById(id).textContent = (val ?? '–'); }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+/* ════════════════ Students ════════════════ */
+async function loadStudents() {
+  loading(true);
+  try { const out = await api('getStudents'); STUDENTS = out.students || []; renderStudents(); }
+  catch (e) { toast(e.message, false); }
+  loading(false);
+}
+
+function renderStudents() {
+  const q = (document.getElementById('stdSearch').value || '').toLowerCase();
+  const rows = STUDENTS.filter(s => !q || Object.values(s).join(' ').toLowerCase().includes(q));
+  document.getElementById('stdCount').textContent = STUDENTS.length;
+  document.getElementById('stdTable').innerHTML = rows.length ? rows.map(s => `
+    <tr class="border-b border-slate-100 hover:bg-indigo-50/40">
+      <td class="px-2 py-2">${esc(s['เลขที่'])}</td>
+      <td class="px-2 py-2">${esc(s['เลขประจำตัวนักเรียน'])}</td>
+      <td class="px-2 py-2 font-medium">${esc(s['ชื่อ-นามสกุล'])}</td>
+      <td class="px-2 py-2">${esc(s['ระดับชั้น/ห้อง'])}</td>
+      <td class="px-2 py-2 text-center whitespace-nowrap">
+        <button onclick="openEditStudent('${esc(s.ID)}')" class="text-xs px-2 py-1 rounded-lg bg-amber-100 text-amber-700 hover:bg-amber-200">✏️ แก้ไข</button>
+        <button onclick="deleteStudent('${esc(s.ID)}')" class="text-xs px-2 py-1 rounded-lg bg-rose-100 text-rose-700 hover:bg-rose-200">🗑️ ลบ</button>
+      </td>
+    </tr>`).join('') : '<tr><td colspan="5" class="text-center text-slate-400 py-6 text-xs">ไม่พบข้อมูล</td></tr>';
+}
+
+async function addStudent() {
+  if (!v('aName')) return toast('กรุณากรอกชื่อ-นามสกุล', false);
+  loading(true, 'กำลังเพิ่มรายชื่อ...');
+  try {
+    await api('addStudent', { no: v('aNo'), studentId: v('aStdId'), name: v('aName'), classroom: v('aClass') });
+    ['aNo','aStdId','aName','aClass'].forEach(id => document.getElementById(id).value = '');
+    toast('เพิ่มรายชื่อเรียบร้อย'); await loadStudents();
+  } catch (e) { toast(e.message, false); loading(false); }
+}
+
+function openEditStudent(id) {
+  const s = STUDENTS.find(x => x.ID === id); if (!s) return;
+  document.getElementById('eId').value = id;
+  document.getElementById('eNo').value = s['เลขที่'] || '';
+  document.getElementById('eStdId').value = s['เลขประจำตัวนักเรียน'] || '';
+  document.getElementById('eName').value = s['ชื่อ-นามสกุล'] || '';
+  document.getElementById('eClass').value = s['ระดับชั้น/ห้อง'] || '';
+  document.getElementById('editStdModal').classList.replace('hidden','flex');
+}
+
+async function saveEditStudent() {
+  loading(true, 'กำลังบันทึก...');
+  try {
+    await api('updateStudent', { id: v('eId'), no: v('eNo'), studentId: v('eStdId'), name: v('eName'), classroom: v('eClass') });
+    document.getElementById('editStdModal').classList.replace('flex','hidden');
+    toast('แก้ไขข้อมูลเรียบร้อย'); await loadStudents();
+  } catch (e) { toast(e.message, false); loading(false); }
+}
+
+async function deleteStudent(id) {
+  if (!confirm('ยืนยันการลบรายชื่อนี้?')) return;
+  loading(true, 'กำลังลบ...');
+  try { await api('deleteStudent', { id }); toast('ลบเรียบร้อย'); await loadStudents(); }
+  catch (e) { toast(e.message, false); loading(false); }
+}
+
+function downloadTemplate() {
+  const csv = '\uFEFFเลขที่,เลขประจำตัวนักเรียน,ชื่อ-นามสกุล,ระดับชั้น/ห้อง\n1,12345,เด็กชายตัวอย่าง ใจดี,ป.1/1\n';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = 'แบบฟอร์มรายชื่อนักเรียน.csv'; a.click();
+}
+
+async function importStudents(input) {
+  const file = input.files[0]; if (!file) return;
+  loading(true, 'กำลังอ่านไฟล์และนำเข้าข้อมูล...');
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+    if (!rows.length) throw new Error('ไม่พบข้อมูลในไฟล์');
+    const out = await api('bulkImportStudents', { rows });
+    toast(`นำเข้าสำเร็จ ${out.result.imported} รายการ`); await loadStudents();
+  } catch (e) { toast(e.message, false); loading(false); }
+  input.value = '';
+}
+
+/* ════════════════ Backup / Import / Clear ════════════════ */
+async function doBackup() {
+  loading(true, 'กำลังสำรองข้อมูล...');
+  try {
+    const out = await api('backupAllData');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(out.backup, null, 2)], { type: 'application/json' }));
+    a.download = 'backup_ระบบทะเบียนย้ายนักเรียน_' + new Date().toISOString().slice(0,10) + '.json';
+    a.click(); toast('ดาวน์โหลดไฟล์สำรองเรียบร้อย');
+  } catch (e) { toast(e.message, false); }
+  loading(false);
+}
+
+async function doImport(input) {
+  const file = input.files[0]; if (!file) return;
+  if (!confirm('การนำเข้าจะเขียนทับข้อมูลปัจจุบันทั้งหมด ยืนยันหรือไม่?')) { input.value=''; return; }
+  loading(true, 'กำลังนำเข้าข้อมูลสำรอง...');
+  try {
+    const backup = JSON.parse(await file.text());
+    const out = await api('importBackupData', backup);
+    toast(`นำเข้าข้อมูลสำเร็จ ${out.result.imported} รายการ`);
+    await loadSettings(); await loadDashboard();
+  } catch (e) { toast(e.message, false); }
+  loading(false); input.value = '';
+}
+
+function openClearModal(){ document.getElementById('clearConfirmText').value=''; document.getElementById('clearModal').classList.replace('hidden','flex'); }
+function closeClearModal(){ document.getElementById('clearModal').classList.replace('flex','hidden'); }
+
+async function doClearAll() {
+  if (v('clearConfirmText') !== 'ยืนยัน') return toast('กรุณาพิมพ์คำว่า "ยืนยัน" ให้ถูกต้อง', false);
+  closeClearModal(); loading(true, 'กำลังล้างข้อมูลทั้งหมด...');
+  try { await api('clearAllData'); toast('ล้างข้อมูลเรียบร้อย'); STUDENTS=[]; renderStudents(); await loadDashboard(); }
+  catch (e) { toast(e.message, false); }
+  loading(false);
+}
+
+init();
+</script>
+</body>
+</html>
